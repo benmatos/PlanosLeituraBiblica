@@ -1,0 +1,37 @@
+# Nome do fluxo de trabalho que aparecerá na aba "Actions" do GitHub
+name: CI - Build and Test
+
+# Define os gatilhos que iniciarão o workflow
+on:
+  # Executa em pushes para o branch 'main'
+  push:
+    branches: [ "main" ]
+  # Executa em pull requests direcionados ao branch 'main'
+  pull_request:
+    branches: [ "main" ]
+
+# Define os trabalhos (jobs) a serem executados
+jobs:
+  build-and-test:
+    # O tipo de máquina virtual para executar o trabalho
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Baixa o código do seu repositório para a máquina virtual
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Configura o ambiente Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x' # Usa a versão 20.x do Node.js
+          cache: 'npm' # Habilita o cache para o npm para acelerar futuras instalações
+
+      # 3. Instala as dependências do projeto
+      - name: Install dependencies
+        run: npm install
+
+      # 4. Executa o script de teste definido no package.json
+      - name: Run tests
+        run: npm test
