@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leitor da Bíblia</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        /* Estilos para a barra de rolagem */
+        .verse-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        .verse-container::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 10px;
+        }
+        .verse-container::-webkit-scrollbar-thumb {
+            background: #94a3b8;
+            border-radius: 10px;
+        }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #3b82f6;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex flex-col items-center min-h-screen p-4">
+
+    <div class="bg-white rounded-xl shadow-lg w-full max-w-2xl p-6 md:p-8 space-y-6 text-center mt-8">
+
+        <h1 class="text-3xl md:text-4xl font-bold text-gray-800">Leitor da Bíblia</h1>
+        
+        <!-- ID do usuário para depuração -->
+        <p id="user-id-display" class="text-sm text-gray-400 break-all"></p>
+        
+        <!-- Mensagens de status e loading spinner -->
+        <div class="flex items-center justify-center gap-2">
+            <p id="message-area" class="text-gray-500 italic"></p>
+            <div id="loading-spinner" class="spinner hidden"></div>
+        </div>
+
+        <!-- Seção de Leitura da Bíblia -->
+        <div class="space-y-4">
+            <h2 class="text-2xl font-semibold text-gray-700">Leitura</h2>
+            <div class="flex flex-col md:flex-row items-center justify-center gap-4">
+                <select id="version-select" class="w-full md:w-1/3 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors cursor-pointer">
+                    <option value="">Carregando Versões...</option>
+                </select>
+                <select id="book-select" class="w-full md:w-1/3 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors cursor-pointer" disabled>
+                    <option value="">Selecione um Livro</option>
+                </select>
+                <select id="chapter-select" class="w-full md:w-1/3 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors cursor-pointer" disabled>
+                    <option value="">Selecione um Capítulo</option>
+                </select>
+            </div>
+            <!-- Área de exibição dos versículos -->
+            <div id="verses-area" class="verse-container bg-slate-50 p-6 rounded-lg text-left max-h-[60vh] overflow-y-auto">
+                <p class="text-gray-500">Selecione uma versão, livro e capítulo para ler os versículos.</p>
+            </div>
+        </div>
+
+        <hr class="my-6 border-t border-gray-300">
+
+        <!-- Seção de Planos de Leitura -->
+        <div class="space-y-6">
+            <h2 class="text-2xl font-semibold text-gray-700">Planos de Leitura</h2>
+            <div class="space-y-4 text-left">
+                <div class="space-y-2">
+                    <label for="plan-name-input" class="block text-gray-600 font-medium">Nome do Plano</label>
+                    <input type="text" id="plan-name-input" placeholder="Ex: Gênesis a Apocalipse" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors">
+                </div>
+                <div class="flex flex-col gap-2">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <select id="start-book-select" class="w-full md:w-auto flex-grow p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors cursor-pointer" disabled>
+                            <option value="">Livro de Início</option>
+                        </select>
+                        <select id="end-book-select" class="w-full md:w-auto flex-grow p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors cursor-pointer" disabled>
+                            <option value="">Livro de Fim</option>
+                        </select>
+                    </div>
+                </div>
+                <button id="save-plan-button" class="w-full p-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition-colors duration-300 disabled:bg-gray-400" disabled>Salvar Plano</button>
+            </div>
+            <div class="space-y-4 mt-6">
+                <h3 class="text-xl font-medium text-gray-700">Meus Planos</h3>
+                <div id="plans-list" class="space-y-4">
+                    <p class="text-gray-500 italic">Nenhum plano salvo.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Substitua este objeto com a sua própria configuração do Firebase.
+        // Você pode encontrar essa configuração no seu console do Firebase.
+        const firebaseConfig = {
+            apiKey: "SUA_API_KEY",
+            authDomain: "SEU_AUTH_DOMAIN",
+            projectId: "SEU_PROJECT_ID",
+            storageBucket: "SEU_STORAGE_BUCKET",
+            messagingSenderId: "SEU_MESSAGING_SENDER_ID",
+            appId: "SEU_APP_ID"
+        };
+        
+        let db = null;
+        let auth = null;
+        let userId = null;
+        let allBooks = [];
+        let selectedBook = null;
+        let selectedVersion = null;
+
+        // Elementos do DOM
+        const versionSelect = document.getElementById('version-select');
+        const bookSelect = document.getElementById('book-select');
+        const chapterSelect = document.getElementById('chapter-select');
+        const versesArea = document.getElementById('verses-area');
+        const messageArea = document.getElementById('message-area');
+        const userIdDisplay = document.getElementById('user-id-display');
+        const planNameInput = document.getElementById('plan-name-input');
+        const startBookSelect = document.getElementById('start-book-select');
+        const endBookSelect = document.getElementById('end-book-select');
+        const savePlanButton = document.getElementById('save-plan-button');
+        const plansList = document.getElementById('plans-list');
+        const loadingSpinner = document.getElementById('loading-spinner');
+
+        const API_URL = 'https://www.abibliadigital.com.br/api/';
+
+        /**
+         * Inicializa o Firebase e a autenticação.
+         */
+        const initializeFirebase = async () => {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        userIdDisplay.textContent = `ID do Usuário: ${userId}`;
+                        console.log("Usuário autenticado:", userId);
+                        setupFirestoreListeners();
+                        populatePlanBookSelects();
+                        enablePlanCreation();
+                    } else {
+                        // Faz login anônimo se não houver usuário autenticado
+                        try {
+                            await signInAnonymously(auth);
+                        } catch (error) {
+                            console.error("Erro ao autenticar anonimamente:", error);
+                            showMessage("Erro ao autenticar. Funcionalidades de plano de leitura desabilitadas.");
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error("Erro ao inicializar Firebase:", error);
+                showMessage("Erro ao inicializar Firebase. Verifique a configuração.");
+            }
+        };
+
+        /**
+         * Configura os listeners em tempo real para o Firestore.
+         */
+        const setupFirestoreListeners = () => {
+            if (!db || !userId) return;
+            // Para um deploy independente, vamos usar uma coleção simples
+            const plansCollectionRef = collection(db, `reading_plans`);
+
+            onSnapshot(plansCollectionRef, (querySnapshot) => {
+                const plans = [];
+                querySnapshot.forEach((doc) => {
+                    const plan = doc.data();
+                    plan.id = doc.id;
+                    plans.push(plan);
+                });
+                displayPlans(plans);
+            }, (error) => {
+                console.error("Erro ao escutar mudanças no Firestore:", error);
+                showMessage("Erro ao carregar planos de leitura.");
+            });
+        };
+
+        /**
+         * Exibe uma mensagem na área de status.
+         * @param {string} message - A mensagem a ser exibida.
+         */
+        const showMessage = (message) => {
+            messageArea.textContent = message;
+        };
+
+        /**
+         * Exibe ou esconde o spinner de carregamento.
+         * @param {boolean} isVisible - Se o spinner deve ser visível (true) ou não.
+         */
+        const showLoading = (isVisible) => {
+            if (isVisible) {
+                loadingSpinner.classList.remove('hidden');
+            } else {
+                loadingSpinner.classList.add('hidden');
+            }
+        };
+
+        /**
+         * Exibe uma mensagem de erro no console e na área de status.
+         * @param {string} error - A mensagem de erro.
+         */
+        const handleError = (error) => {
+            console.error(error);
+            showMessage('Não foi possível carregar os dados. Verifique sua conexão com a internet ou tente novamente mais tarde.');
+        };
+
+        /**
+         * Habilita ou desabilita os controles de seleção.
+         * @param {boolean} isLoading - Se os controles devem ser desabilitados (true) ou habilitados (false).
+         * @param {string} selector - Qual seletor controlar ('version', 'book', 'chapter').
+         */
+        const setControlsLoading = (isLoading, selector) => {
+            if (selector === 'version') {
+                versionSelect.disabled = isLoading;
+            } else if (selector === 'book') {
+                bookSelect.disabled = isLoading;
+                chapterSelect.disabled = isLoading;
+            } else if (selector === 'chapter') {
+                chapterSelect.disabled = isLoading;
+            }
+        };
+
+        /**
+         * Habilita a seção de criação de planos.
+         */
+        const enablePlanCreation = () => {
+            startBookSelect.disabled = false;
+            endBookSelect.disabled = false;
+            planNameInput.disabled = false;
+            updateSaveButtonState();
+        };
+
+        /**
+         * Busca a lista de versões da Bíblia na API.
+         */
+        const fetchVersions = async () => {
+            showMessage('Carregando versões...');
+            showLoading(true);
+            setControlsLoading(true, 'version');
+            try {
+                const response = await fetch(`${API_URL}versions`);
+                if (!response.ok) {
+                    throw new Error('Falha ao carregar a lista de versões.');
+                }
+                const versions = await response.json();
+                populateVersionSelect(versions);
+                showMessage('');
+            } catch (error) {
+                handleError(error.message);
+            } finally {
+                showLoading(false);
+                setControlsLoading(false, 'version');
+            }
+        };
+
+        /**
+         * Preenche o dropdown de seleção de versões.
+         * @param {Array} versions - Um array de objetos de versões.
+         */
+        const populateVersionSelect = (versions) => {
+            versionSelect.innerHTML = '<option value="">Selecione uma Versão</option>';
+            versions.forEach(version => {
+                const option = document.createElement('option');
+                option.value = version.abbrev;
+                option.textContent = version.version;
+                versionSelect.appendChild(option);
+            });
+        };
+
+        /**
+         * Busca a lista de livros da Bíblia na API.
+         */
+        const fetchBooks = async () => {
+            showMessage('Carregando livros...');
+            showLoading(true);
+            setControlsLoading(true, 'book');
+            try {
+                const response = await fetch(`${API_URL}books`);
+                if (!response.ok) {
+                    throw new Error('Falha ao carregar a lista de livros.');
+                }
+                allBooks = await response.json();
+                populateBookSelect();
+                showMessage('');
+            } catch (error) {
+                handleError(error.message);
+            } finally {
+                showLoading(false);
+                setControlsLoading(false, 'book');
+            }
+        };
+
+        /**
+         * Preenche os dropdowns de seleção de livros (leitura e planos).
+         */
+        const populateBookSelect = () => {
+            const htmlOptions = allBooks.map(book => `<option value="${book.abbrev.pt}">${book.name}</option>`).join('');
+            
+            bookSelect.innerHTML = '<option value="">Selecione um Livro</option>' + htmlOptions;
+            bookSelect.disabled = false;
+        };
+
+        /**
+         * Preenche os dropdowns de seleção de livros na seção de planos.
+         */
+        const populatePlanBookSelects = () => {
+            const htmlOptions = allBooks.map(book => `<option value="${book.abbrev.pt}">${book.name}</option>`).join('');
+            
+            startBookSelect.innerHTML = '<option value="">Livro de Início</option>' + htmlOptions;
+            endBookSelect.innerHTML = '<option value="">Livro de Fim</option>' + htmlOptions;
+        };
+
+        /**
+         * Preenche o dropdown de seleção de capítulos.
+         * @param {number} chaptersCount - O número total de capítulos.
+         */
+        const populateChapterSelect = (chaptersCount) => {
+            chapterSelect.innerHTML = '<option value="">Selecione um Capítulo</option>';
+            chapterSelect.disabled = false;
+            for (let i = 1; i <= chaptersCount; i++) {
+                const option = document.createElement('option');
+                option.value = i;
+                option.textContent = `Capítulo ${i}`;
+                chapterSelect.appendChild(option);
+            }
+        };
+
+        /**
+         * Busca os versículos de um capítulo específico.
+         * @param {string} bookAbbrev - A abreviação do livro.
+         * @param {number} chapterNumber - O número do capítulo.
+         */
+        const fetchChapter = async (bookAbbrev, chapterNumber) => {
+            if (!selectedVersion) {
+                showMessage('Por favor, selecione uma versão da Bíblia.');
+                return;
+            }
+            setControlsLoading(true, 'chapter');
+            showLoading(true);
+            showMessage(`Carregando ${selectedBook.name}, Capítulo ${chapterNumber}...`);
+            try {
+                const response = await fetch(`${API_URL}verses/${selectedVersion}/${bookAbbrev}/${chapterNumber}`);
+                if (!response.ok) {
+                    throw new Error('Falha ao carregar os versículos do capítulo.');
+                }
+                const data = await response.json();
+                displayVerses(data.verses);
+                showMessage('');
+            } catch (error) {
+                handleError(error.message);
+            } finally {
+                setControlsLoading(false, 'chapter');
+                showLoading(false);
+            }
+        };
+
+        /**
+         * Exibe os versículos na área de exibição.
+         * @param {Array} verses - Um array de objetos de versículos.
+         */
+        const displayVerses = (verses) => {
+            if (verses && verses.length > 0) {
+                const versesHtml = verses.map(verse => `
+                    <p class="text-gray-800 text-lg leading-relaxed mb-4">
+                        <strong class="text-blue-600 font-semibold">${verse.number}</strong> ${verse.text}
+                    </p>
+                `).join('');
+                versesArea.innerHTML = versesHtml;
+            } else {
+                versesArea.innerHTML = '<p class="text-gray-500">Nenhum versículo encontrado para este capítulo.</p>';
+            }
+        };
+        
+        /**
+         * Atualiza o estado do botão de salvar plano.
+         */
+        const updateSaveButtonState = () => {
+            const planName = planNameInput.value.trim();
+            const startBook = startBookSelect.value;
+            const endBook = endBookSelect.value;
+            
+            if (planName && startBook && endBook && userId) {
+                savePlanButton.disabled = false;
+            } else {
+                savePlanButton.disabled = true;
+            }
+        };
+
+        /**
+         * Salva um novo plano de leitura no Firestore.
+         */
+        const saveReadingPlan = async () => {
+            const planName = planNameInput.value.trim();
+            const startBookAbbrev = startBookSelect.value;
+            const endBookAbbrev = endBookSelect.value;
+
+            if (!planName || !startBookAbbrev || !endBookAbbrev) {
+                showMessage("Por favor, preencha todos os campos.");
+                return;
+            }
+
+            const startBook = allBooks.find(book => book.abbrev.pt === startBookAbbrev);
+            const endBook = allBooks.find(book => book.abbrev.pt === endBookAbbrev);
+
+            const planData = {
+                userId: userId,
+                name: planName,
+                firstBookAbbrev: startBook.abbrev.pt,
+                firstBookName: startBook.name,
+                lastBookAbbrev: endBook.abbrev.pt,
+                lastBookName: endBook.name
+            };
+
+            try {
+                await addDoc(collection(db, `reading_plans`), planData);
+                showMessage("Plano de leitura salvo com sucesso!");
+                planNameInput.value = '';
+                startBookSelect.value = '';
+                endBookSelect.value = '';
+                updateSaveButtonState();
+            } catch (e) {
+                console.error("Erro ao adicionar documento:", e);
+                showMessage("Erro ao salvar o plano. Tente novamente.");
+            }
+        };
+        
+        /**
+         * Deleta um plano de leitura do Firestore.
+         * @param {string} planId - O ID do documento do plano a ser deletado.
+         */
+        const deleteReadingPlan = async (planId) => {
+            try {
+                await deleteDoc(doc(db, `reading_plans`, planId));
+                showMessage("Plano de leitura deletado com sucesso!");
+            } catch (e) {
+                console.error("Erro ao deletar documento:", e);
+                showMessage("Erro ao deletar o plano. Tente novamente.");
+            }
+        };
+
+        /**
+         * Exibe os planos de leitura na lista.
+         * @param {Array} plans - Array de planos de leitura.
+         */
+        const displayPlans = (plans) => {
+            plansList.innerHTML = '';
+            if (plans.length === 0) {
+                plansList.innerHTML = '<p class="text-gray-500 italic">Nenhum plano salvo.</p>';
+                return;
+            }
+
+            // Ordena os planos por nome
+            const sortedPlans = plans.sort((a, b) => a.name.localeCompare(b.name));
+
+            sortedPlans.forEach(plan => {
+                const planElement = document.createElement('div');
+                planElement.className = 'bg-slate-100 p-4 rounded-lg flex flex-col sm:flex-row justify-between items-center shadow-sm';
+                planElement.innerHTML = `
+                    <div class="text-left w-full sm:w-auto">
+                        <p class="font-bold text-gray-800">${plan.name}</p>
+                        <p class="text-gray-600 text-sm">${plan.firstBookName} a ${plan.lastBookName}</p>
+                    </div>
+                    <div class="flex flex-row gap-2 mt-2 sm:mt-0">
+                        <button data-plan-id="${plan.id}" class="read-button px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors duration-300">Ler Plano</button>
+                        <button data-plan-id="${plan.id}" class="delete-button px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors duration-300">Excluir</button>
+                    </div>
+                `;
+                plansList.appendChild(planElement);
+
+                // Adiciona os eventos de clique
+                planElement.querySelector('.read-button').addEventListener('click', () => {
+                    const firstBook = allBooks.find(book => book.abbrev.pt === plan.firstBookAbbrev);
+                    if (firstBook) {
+                        versionSelect.value = versionSelect.options[1]?.value; // Seleciona a primeira versão disponível para ler
+                        versionSelect.dispatchEvent(new Event('change'));
+                        
+                        bookSelect.value = firstBook.abbrev.pt;
+                        bookSelect.dispatchEvent(new Event('change'));
+                        
+                        // Seleciona o primeiro capítulo do livro
+                        if (firstBook.chapters > 0) {
+                            chapterSelect.value = 1;
+                            chapterSelect.dispatchEvent(new Event('change'));
+                        }
+                    }
+                });
+
+                planElement.querySelector('.delete-button').addEventListener('click', () => {
+                    deleteReadingPlan(plan.id);
+                });
+            });
+        };
+
+        // --- Event Listeners ---
+        
+        // Listener para a mudança de versão
+        versionSelect.addEventListener('change', (event) => {
+            selectedVersion = event.target.value;
+            if (selectedVersion) {
+                bookSelect.disabled = false;
+                chapterSelect.disabled = true;
+                versesArea.innerHTML = '<p class="text-gray-500">Selecione um livro e um capítulo.</p>';
+            } else {
+                bookSelect.disabled = true;
+                chapterSelect.disabled = true;
+                versesArea.innerHTML = '<p class="text-gray-500">Selecione uma versão, livro e capítulo para ler os versículos.</p>';
+            }
+        });
+
+        // Listener para a mudança de livro
+        bookSelect.addEventListener('change', (event) => {
+            const selectedAbbrev = event.target.value;
+            if (selectedAbbrev) {
+                selectedBook = allBooks.find(book => book.abbrev.pt === selectedAbbrev);
+                populateChapterSelect(selectedBook.chapters);
+                versesArea.innerHTML = '<p class="text-gray-500">Selecione um capítulo.</p>';
+                chapterSelect.value = '';
+            } else {
+                chapterSelect.innerHTML = '<option value="">Selecione um Capítulo</option>';
+                chapterSelect.disabled = true;
+                versesArea.innerHTML = '<p class="text-gray-500">Selecione um livro e um capítulo para ler os versículos.</p>';
+            }
+            showMessage('');
+        });
+
+        // Listener para a mudança de capítulo
+        chapterSelect.addEventListener('change', (event) => {
+            const chapterNumber = event.target.value;
+            if (chapterNumber && selectedBook) {
+                fetchChapter(selectedBook.abbrev.pt, chapterNumber);
+            }
+        });
+
+        // Listeners para os campos de criação de planos
+        planNameInput.addEventListener('input', updateSaveButtonState);
+        startBookSelect.addEventListener('change', updateSaveButtonState);
+        endBookSelect.addEventListener('change', updateSaveButtonState);
+        savePlanButton.addEventListener('click', saveReadingPlan);
+
+        // --- Inicialização ---
+        window.onload = () => {
+            initializeFirebase();
+            fetchVersions();
+            fetchBooks();
+        };
+
+    </script>
+</body>
+</html>
